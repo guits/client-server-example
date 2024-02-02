@@ -1,10 +1,9 @@
 import socket
 import sys
 import logging
-import time
 from threading import Thread
 from client import Client
-
+from lock import _Lock
 HOST = "127.0.0.1"  # Standard loopback interface address (localhost)
 PORT = 65431  # Port to listen on (non-privileged ports are > 1023)
 
@@ -13,7 +12,7 @@ class Server:
     def __init__(self,
                  host='127.0.0.1',
                  port=65431):
-        self.ready = False
+        self.lock = _Lock()
         self.host = host
         self.port = port
         self.log = logging.getLogger(__name__)
@@ -43,7 +42,6 @@ class Server:
                 data = client.recv(1024)
                 if not data:
                     self.log.info(f"[*] Connection closed by {addr[0]}:{addr[1]}")
-                    self.ready = False
                     client.close()
                     break
                 try:
@@ -58,7 +56,6 @@ class Server:
                     client.close()
                     sys.exit(0)
                 # send data to endpoint
-                # self.client.send_data(f"{data_str}\n\n")
                 self.client.send_raw_data(data)
 
     def accept(self, socket):
@@ -73,7 +70,7 @@ class Server:
                              kwargs={"client": client,
                                      "addr": addr})
         self.thread.start()
-        self.ready = True
+        self.lock.release()
 
     def run(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -86,3 +83,8 @@ class Server:
 
     def decode_data(self, data):
         return data.decode("utf-8").strip()
+
+    def to_client(self, data):
+        self.lock.acquire()
+        self._client.sendall(data)
+        self.lock.release()

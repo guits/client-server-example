@@ -1,6 +1,7 @@
 import socket
 import logging
 import sys
+from lock import _Lock
 
 HOST = '127.0.0.1'
 PORT = 65431
@@ -11,7 +12,7 @@ class Client:
                  host='',
                  port=22,
                  server=None):
-        self.ready = False
+        self.lock = _Lock()
         self.host = host
         self.port = port
         self.log = logging.getLogger(__name__)
@@ -28,9 +29,6 @@ class Client:
             except OSError as e:
                 self.log.info(f"Connection closed by {self.host}:{self.port}: {e}")
                 break
-            # if not data:
-            #     self.log.info(f"Connection closed by {self.host}:{self.port}")
-            #     break
             try:
                 data_str = self.decode_data(data)
             except UnicodeDecodeError:
@@ -48,14 +46,14 @@ class Client:
                 self.log.error(f"Connection refused to {self.host}:{self.port}")
                 sys.exit(1)
             self.log.info(f"Connected to {self.host}:{self.port}")
-            self.ready = True
+            self.lock.release()
             while True:
                 try:
                     data = s.recv(1024)
                 except OSError as e:
                     self.log.info(f"Connection closed by {self.host}:{self.port}: {e}")
                 if not data:
-                    server.ready = False
+                    server.lock.acquire()
                     break
                 try:
                     data_str = self.decode_data(data)
@@ -65,22 +63,18 @@ class Client:
                               f"{self.host}:{self.port}: {data_str}")
                 # send data to client (connected to the frontend)
                 # need to make sure the server has accepted a connection before
-                while True:
-                    if server.ready:
-                        break
-                server._client.sendall(data)
-                # self.send_data(data_str)
+                # (addressed with Thread.Lock())
+                server.to_client(data)
 
     def send_data(self, data):
         self.log.info(f"Sending data to {self.host}:{self.port}: {data}")
         self.socket.sendall(data.encode("utf-8"))
 
     def send_raw_data(self, data):
-        while True:
-            if self.ready:
-                break
+        self.lock.acquire()
         self.log.info(f"Sending data to {self.host}:{self.port}: {data}")
         self.socket.sendall(data)
+        self.lock.release()
 
     def decode_data(self, data):
         return data.decode("utf-8").strip()
